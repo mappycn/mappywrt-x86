@@ -48,10 +48,9 @@ jobs:
     name: x86_64-BIOS-${{ inputs.source_branch || 'openwrt-24.10' }}
 
     steps:
-      - name: 检出仓库
-        uses: actions/checkout@v4
-
-      # 标准 runner 只有 ~14G 可用，x86 全量编译要 25G+，先腾空间
+      # 必须先腾空间：该动作会把新磁盘挂载到工作区目录，
+      # 先检出的话文件会被盖掉（第一次运行失败的原因）
+      # 标准 runner 只有 ~14G 可用，x86 全量编译要 25G+
       - name: 腾出磁盘空间
         uses: easimon/maximize-build-space@master
         with:
@@ -62,6 +61,9 @@ jobs:
           remove-haskell: 'true'
           remove-codeql: 'true'
           remove-docker-images: 'true'
+
+      - name: 检出仓库
+        uses: actions/checkout@v4
 
       - name: 显示磁盘信息
         run: |
