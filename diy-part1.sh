@@ -89,6 +89,18 @@ fetch_pkg "luci-app-watchdog"       "https://github.com/sirpdboy/luci-app-watchd
 # 注意：sirpdboy/luci-app-netspeedtest 已于 2026-02 被 DMCA 下架，无法再拉取。
 # 需要测速功能可以用 luci-app-openclash 自带的测速，或装 iperf3。
 
+# ddns-go 6.13.0 起 go.mod 要求 Go >= 1.25，而 ImmortalWrt 24.10 编译链只有 Go 1.23，
+# 固定到最后一个兼容版本 6.12.0，否则编译必挂
+DDNS_GO_MK="$PKG_ROOT/ddns-go/Makefile"
+if [ -f "$DDNS_GO_MK" ]; then
+    sed -i -e 's/^PKG_VERSION:=.*/PKG_VERSION:=6.12.0/' \
+           -e 's/^PKG_HASH:=.*/PKG_HASH:=59f5a705f08f539c011e12c01b4e82791130bfb4ccfb332f2b6545945fa70e38/' \
+           "$DDNS_GO_MK"
+    grep -q '^PKG_VERSION:=6.12.0' "$DDNS_GO_MK" \
+        && echo "  [修]   ddns-go 固定为 6.12.0（兼容 Go 1.23）" \
+        || echo "  [警告] ddns-go 版本改写失败，编译可能挂"
+fi
+
 echo "==> 拉取科学上网插件"
 fetch_pkg "luci-app-openclash" "https://github.com/vernesong/OpenClash.git" master
 
