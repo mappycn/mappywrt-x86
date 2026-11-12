@@ -1,0 +1,187 @@
+#
+# EzOpWrt-Compatible x86_64 (BIOS) Firmware Builder
+# 基于 ImmortalWrt 源码 + sirpdboy 插件体系，复刻 EzOpWrt 功能集
+# 产物: x86_64 generic ext4-combined.img.gz (Legacy BIOS 引导)
+#
+name: Build Firmware
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_branch:
+        description: 'ImmortalWrt 源码分支'
+        required: true
+        default: 'openwrt-24.10'
+        type: choice
+        options:
+          - openwrt-24.10
+          - openwrt-25.12
+      rootfs_size:
+        description: '根分区大小 (MB)'
+        required: true
+        default: '2048'
+      publish_release:
+        description: '是否创建 Release 便于长期下载'
+        required: true
+        default: true
+        type: boolean
+  push:
+    branches: [ main, master ]
+    paths-ignore:
+      - 'README.md'
+      - 'docs/**'
+
+# 需要写 Release 权限
+permissions:
+  contents: write
+
+env:
+  REPO_URL: https://github.com/immortalwrt/immortalwrt
+  REPO_BRANCH: ${{ inputs.source_branch || 'openwrt-24.10' }}
+  ROOTFS_SIZE: ${{ inputs.rootfs_size || '2048' }}
+  TZ: Asia/Shanghai
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 350
+    name: x86_64-BIOS-${{ inputs.source_branch || 'openwrt-24.10' }}
+
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+
+      # 标准 runner 只有 ~14G 可用，x86 全量编译要 25G+，先腾空间
+      - name: 腾出磁盘空间
+        uses: easimon/maximize-build-space@master
+        with:
+          root-reserve-mb: 8192
+          swap-size-mb: 2048
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
+          remove-docker-images: 'true'
+
+      - name: 显示磁盘信息
+        run: |
+          df -hT
+          nproc
+          free -h
+
+      - name: 安装编译依赖
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y build-essential clang flex bison g++ gawk \
+            gcc-multilib g++-multilib gettext git libncurses-dev libssl-dev \
+            python3-distutils python3-setuptools python3-dev rsync unzip zlib1g-dev \
+            file wget subversion patch upx-ucl autoconf automake libtool \
+            libelf-dev ecj fastjar java-propose-classpath swig time xsltproc \
+            libxml-parser-perl python3-pyelftools bc cpio libfuse-dev \
+            device-tree-compiler uglifyjs ccache
+          sudo apt-get clean
+          sudo timedatectl set-timezone "$TZ"
+          git config --global user.name 'github-actions'
+          git config --global user.email 'github-actions@github.com'
+
+      - name: 克隆源码
+        run: |
+          git clone --depth=1 -b "$REPO_BRANCH" "$REPO_URL" openwrt
+          cd openwrt
+          git log -1 --pretty=format:'源码版本: %h %ad %s%n' --date=iso
+          echo "OPENWRT_DIR=$PWD" >> "$GITHUB_ENV"
+
+      - name: 自定义 feeds（第三方插件源）
+        run: |
+          cd openwrt
+          bash "$GITHUB_WORKSPACE/diy-part1.sh"
+
+      - name: 更新并安装 feeds
+        run: |
+          cd openwrt
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: 注入配置与文件
+        run: |
+          cd openwrt
+          bash "$GITHUB_WORKSPACE/diy-part2.sh"
+          echo "=== 生效的机型配置 ==="
+          grep -E 'CONFIG_TARGET_(x86|ROOTFS|KERNEL_|IMAGES|GRUB)' .config || true
+
+      - name: 生成 .config
+        run: |
+          cd openwrt
+          make defconfig
+          echo "=== 根分区大小 ==="
+          grep -E 'CONFIG_TARGET_ROOTFS_PARTSIZE|CONFIG_GRUB_IMAGES|CONFIG_GRUB_EFI_IMAGES' .config
+          echo "=== 实际选中包数 ==="
+          grep -c '=y' .config
+
+      - name: 下载源码包
+        run: |
+          cd openwrt
+          make download -j8 || make download -j1 V=s || echo "::warning::部分源码包下载失败，编译阶段会自动重试"
+          find dl -size -1024c -type f -delete
+
+      - name: 编译固件
+        run: |
+          cd openwrt
+          make -j"$(nproc)" || make -j1 V=s
+
+      - name: 整理产物
+        if: success()
+        run: |
+          cd openwrt/bin/targets/x86/64
+          ls -lh
+          DATE=$(date +%Y%m%d)
+          for f in *combined.img.gz; do
+            [ -e "$f" ] || continue
+            NEW="EzOpWrt-x86_64-BIOS-${ROOTFS_SIZE}M-${DATE}.img.gz"
+            mv "$f" "$NEW"
+            sha256sum "$NEW" > "$NEW.sha256"
+          done
+          ls -1 *.img.gz >/dev/null 2>&1 || { echo "::error::编译结束但没找到 combined.img.gz，检查 CONFIG_GRUB_IMAGES 是否被改"; exit 1; }
+          ls -lh *.img.gz *.sha256
+
+      - name: 上传 artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-x86_64-bios-${{ github.run_number }}
+          path: |
+            openwrt/bin/targets/x86/64/*.img.gz
+            openwrt/bin/targets/x86/64/*.sha256
+            openwrt/bin/targets/x86/64/config.buildinfo
+          retention-days: 30
+
+      - name: 发布 Release
+        if: success() && (inputs.publish_release == true || github.event_name == 'push')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: EzOpWrt x86_64 BIOS ${{ github.run_number }}
+          body: |
+            自动编译产物，源码分支 `${{ env.REPO_BRANCH }}`。
+
+            - 引导方式：Legacy BIOS（不是 UEFI）
+            - 根分区：${{ env.ROOTFS_SIZE }} MB，ext4 可写
+            - 默认地址：http://192.168.8.1  用户名 root  密码 password
+          files: |
+            openwrt/bin/targets/x86/64/*.img.gz
+            openwrt/bin/targets/x86/64/*.sha256
+          draft: false
+          prerelease: false
+
+      - name: 编译失败时导出日志
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-${{ github.run_number }}
+          path: |
+            openwrt/logs/
+            openwrt/bin/targets/x86/64/
+          retention-days: 7
+          if-no-files-found: ignore
