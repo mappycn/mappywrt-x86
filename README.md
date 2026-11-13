@@ -176,7 +176,7 @@ CONFIG_PACKAGE_luci-app-adguardhome=y
 | Actions 编译失败，日志里有 `package/xxx: No such file` | 那个第三方插件还没适配 24.10，在 `diy-part1.sh` 里删掉对应行 |
 | 编译成功但没有 `.img.gz` | 检查 `configs/packages.config` 里 `CONFIG_GRUB_IMAGES=y` 和 `CONFIG_TARGET_IMAGES_GZIP=y` 是否被误改 |
 | 刷完进不去系统 / 卡在 GRUB | BIOS 启动模式没设成 Legacy，或写盘时选错了盘 |
-| 刷完网口不通 | N4200 部分机型主网卡是 Realtek，确认 `kmod-r8169` 已编入（默认已带） |
+| 刷完网口不通 | N4200 部分机型主网卡是 Realtek 8111/8168，确认 `kmod-r8168` 已编入（x86 目标默认带） |
 | LuCI 打开是白屏/报错 | 主题或插件版本不匹配，把 KuCat 相关两行注释掉重编，验证是否主题问题 |
 | 磁盘不够 `No space left on device` | 工作流里"腾出磁盘空间"步骤失败，重跑一次；仍失败就把 `rootfs_size` 改小到 1024 |
 
@@ -200,3 +200,39 @@ CONFIG_PACKAGE_luci-app-adguardhome=y
 默认设置（IP、密码、时区、DNS、主题、DHCP 范围）都在 `files/etc/uci-defaults/99-ezopwrt` 里，想改开箱即用的配置直接改这个文件。
 
 关于源码分支：默认 `openwrt-24.10`（6.6 内核，与 EzOpWrt 现役版本同代，第三方插件适配最全）。`openwrt-25.12` 也能编，但 sirpdboy 那批插件在 25.12 上适配未必完整，可能出现插件被静默跳过的情况，建议先跑通 24.10 再折腾。
+
+---
+
+## 八、旁路由模式（只做旁路由时看这里）
+
+旁路由 = 这台机器不拨号、不接触公网，只挂在主路由的局域网里，替指定设备做网关。好处有两个：**不占用主路由的 PPPoE 和多拨**，而且**WAN 口不暴露在公网**，扫描器根本扫不到它。
+
+### 切换方法
+
+刷完固件、能进 LuCI 之后，把 `extras/bypass-mode.sh` 传到路由器上执行（先把 IP 换成你实际的）：
+
+```sh
+scp extras/bypass-mode.sh root@192.168.8.1:/root/
+ssh root@192.168.8.1 'sh /root/bypass-mode.sh 192.168.1.1 192.168.1.2'
+```
+
+脚本会自动完成：LAN 改静态 IP + 指网关/DNS 到主路由、关本机 DHCP（避免两台 DHCP 抢着分配）、关 WAN/WAN6、LAN 区域开 masquerade 与转发、关 UPnP、DNS 只对局域网服务。
+
+执行完 SSH 会断开，用新 IP 重新连。
+
+### 让它真正生效
+
+旁路由装好后，内网设备的「网关」必须指向它，否则流量根本不过去。两种做法：
+
+- **全屋生效**：主路由 → DHCP 设置 → 把「默认网关」和「DNS」都改成旁路由 IP。所有设备下次续租自动切换。
+- **按设备生效**：只给需要的机器手动设网关和 DNS，其余照旧走主路由直连。
+
+### 三个容易踩的坑
+
+1. **DNS 环路**：主路由的 DNS 不能又指回旁路由，否则两边互指，解析变慢甚至全挂。
+2. **插件要开 DNS 劫持**：OpenClash / HomeProxy 的「DNS 转发」或「劫持」必须打开，不然分流规则匹配不上，表现为「能上国内网站，国外站点不生效」。
+3. **别开第二个 DHCP**：脚本已经关了 `dhcp.lan`，如果你后来手动又打开，内网会随机出现拿不到 IP 或网关指错的问题。
+
+### 单臂的带宽
+
+两个网口只用一个也够：网口是全双工，进和出各 1Gbps，不会减半。但如果内网互访（NAS 拷文件）和上网流量走同一根线，实际吞吐会互相挤占，这种情况把第二个网口也桥进 `br-lan` 分担即可。
