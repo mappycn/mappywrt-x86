@@ -236,3 +236,17 @@ ssh root@192.168.8.1 'sh /root/bypass-mode.sh 192.168.1.1 192.168.1.2'
 ### 单臂的带宽
 
 两个网口只用一个也够：网口是全双工，进和出各 1Gbps，不会减半。但如果内网互访（NAS 拷文件）和上网流量走同一根线，实际吞吐会互相挤占，这种情况把第二个网口也桥进 `br-lan` 分担即可。
+
+---
+
+## 九、KuCat 主题：菜单被「常用菜单」模式隐藏
+
+KuCat 3.3.x 自带「常用菜单 / 全部菜单」切换，**默认是常用菜单（basic）**，只显示一份硬编码白名单，而白名单里全是老版插件路径（`services/AdGuardHome`、`network/netspeedtest` 等，本固件并没有），结果「服务」等大部分分类被隐藏，看起来像插件没装上、没编进去。
+
+- 固件已内置 `files/etc/uci-defaults/98-kucat-menu`，首次启动自动把默认分类改成 `allmenu`（全部菜单），并让浏览器里残留的 `basic` 记忆失效
+- 界面右上角「退出登录」旁边有个小切换图标（悬停显示 Switch to Full Menus），可手动在两种模式间切换
+- 切换状态存在浏览器 `localStorage` 的 `luci-menu-category`
+- 已刷好的设备若仍看不到，按 **Ctrl+F5** 强刷；也可在浏览器控制台临时执行：
+  `localStorage.setItem('luci-menu-category','allmenu'); location.reload()`
+- 绕过菜单直接验证：`http://<路由器IP>/cgi-bin/luci/admin/services/wol`
+- 想让顶部快捷栏（含「服务」直达图标）常驻：`uci set kucat.@basic[0].setbar='1' && uci commit kucat`，刷新页面即可

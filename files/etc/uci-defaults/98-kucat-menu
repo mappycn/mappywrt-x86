@@ -1,0 +1,13 @@
+#!/bin/sh
+# KuCat 主题 3.3.x 默认启用「常用菜单」(basic) 模式：
+# 只显示硬编码的白名单菜单，而白名单里全是老版插件路径
+# （services/AdGuardHome、network/netspeedtest 等，本固件并没有），
+# 结果「服务」「网络」等大部分分类被 CSS 隐藏，插件看起来像没装。
+# 这里把默认分类改成 allmenu（全部菜单），并忽略浏览器里残留的 basic 记忆。
+# 若上游主题改了字符串，sed 不匹配会静默跳过，不会破坏文件。
+F=/www/luci-static/resources/menu-kucat.js
+[ -f "$F" ] || exit 0
+
+sed -i "s/currentCategory:'basic'/currentCategory:'allmenu'/; s/savedCategory==='basic'||savedCategory==='allmenu'/savedCategory==='allmenu'/" "$F"
+
+exit 0
