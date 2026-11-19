@@ -9,8 +9,8 @@
 # 做四件事：
 #   1. LAN 改成静态 IP，网关/DNS 指向主路由
 #   2. 关掉本机 DHCP 服务（地址由主路由分配，避免两台 DHCP 打架）
-#   3. 关掉 WAN / WAN6（旁路由不直接拨号，不接触公网）
-#   4. LAN 区域开 masquerade + 允许转发，让它能替内网设备转发
+#   3. 停用 WAN 拨号（旁路由不直接拨号；防火墙 WAN 区域保持出厂原样）
+#   4. LAN 区域只开转发、不做 NAT；保留 WAN 区域的 masq/mtu_fix（与原厂旁路由一致）
 #
 # 执行后 SSH / LuCI 会立刻断开，请用新 IP 重新连接。
 # 想改回主路由模式：把 LAN 改回 DHCP 客户端 + 重新开启 dhcp.lan 即可。
@@ -72,33 +72,23 @@ uci -q set dhcp.@dnsmasq[0].localservice='1' || true
 uci -q set dhcp.@dnsmasq[0].domainneeded='1' || true
 uci -q set dhcp.@dnsmasq[0].rebind_protection='1' || true
 
-echo "==> 3/4 关闭 WAN / WAN6"
+echo "==> 3/4 停用 WAN 拨号（保留防火墙 WAN 区域，不要动它的 masq/mtu_fix）"
 if uci -q get network.wan >/dev/null 2>&1; then
     uci set network.wan.proto='none'
     uci set network.wan.auto='0'
 fi
-uci -q delete network.wan6 || true
+# 关键修复：原厂旁路由的 WAN zone 保留 masq=1 + mtu_fix=1，LAN zone 无 masq。
+# 旧版脚本把 wan6 摘掉、WAN masq 关掉，又把 masq/mtu_fix 挪到 LAN zone，
+# 结果 fw4 不再为转发流量生成正确的 TCP MSS 钳制，且 LAN 源 IP 被伪装成旁路由，
+# 造成「ping 不通 / 网页打不开」。这里与原厂配置保持一致。
+WAN_Z="${WAN_Z:-}"   # 仅作占位，WAN 区域配置保持出厂原样
 
-# 从 wan 区域里摘掉已删除的 wan6，防止 fw4 报 "network not found"
-if [ -n "$WAN_Z" ]; then
-    KEEP=""
-    for n in $(uci -q get firewall.@zone[$WAN_Z].network 2>/dev/null); do
-        [ "$n" = "wan6" ] && continue
-        KEEP="$KEEP $n"
-    done
-    uci -q delete firewall.@zone[$WAN_Z].network || true
-    for n in $KEEP; do
-        uci add_list firewall.@zone[$WAN_Z].network="$n" >/dev/null
-    done
-    uci -q set firewall.@zone[$WAN_Z].masq='0' || true
-fi
-
-echo "==> 4/4 配置 LAN 区域转发与伪装"
+echo "==> 4/4 配置 LAN 区域转发（不做 NAT，与原厂旁路由一致）"
 uci set firewall.@zone[$LAN_Z].input='ACCEPT'
 uci set firewall.@zone[$LAN_Z].output='ACCEPT'
 uci set firewall.@zone[$LAN_Z].forward='ACCEPT'
-uci set firewall.@zone[$LAN_Z].masq='1'
-uci set firewall.@zone[$LAN_Z].mtu_fix='1'
+uci -q delete firewall.@zone[$LAN_Z].masq || true
+uci -q delete firewall.@zone[$LAN_Z].mtu_fix || true
 
 # 关掉 UPnP（存在才关）
 if uci -q get upnpd.config >/dev/null 2>&1; then

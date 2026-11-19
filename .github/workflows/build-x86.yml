@@ -20,6 +20,10 @@ on:
         description: '根分区大小 (MB)'
         required: true
         default: '2048'
+      source_commit:
+        description: '源码版本：留空=对齐老U盘(内核6.6.121)；填 latest=分支最新(6.6.159)；也可填指定commit'
+        required: false
+        default: ''
       publish_release:
         description: '是否创建 Release 便于长期下载'
         required: true
@@ -39,6 +43,8 @@ env:
   REPO_URL: https://github.com/immortalwrt/immortalwrt
   REPO_BRANCH: ${{ inputs.source_branch || 'openwrt-24.10' }}
   ROOTFS_SIZE: ${{ inputs.rootfs_size || '2048' }}
+  # 默认锁定到与老U盘同期的源码（内核6.6.121），确保换U盘行为一致；填 latest 可用分支最新
+  SOURCE_COMMIT: ${{ inputs.source_commit || '8843108ff0fffb2abdc87465c323c97c7821df05' }}
   TZ: Asia/Shanghai
 
 jobs:
@@ -92,7 +98,17 @@ jobs:
         run: |
           git clone --depth=1 -b "$REPO_BRANCH" "$REPO_URL" openwrt
           cd openwrt
+          # 默认检出与老U盘同期的 commit（内核6.6.121）；只有显式填 latest 才用分支最新
+          if [ -n "$SOURCE_COMMIT" ] && [ "$SOURCE_COMMIT" != "latest" ]; then
+            git fetch --depth=1 origin "$SOURCE_COMMIT"
+            git checkout "$SOURCE_COMMIT"
+            echo "::notice::已切换到指定源码 commit $SOURCE_COMMIT"
+          elif [ "$SOURCE_COMMIT" = "latest" ]; then
+            echo "::notice::使用分支最新源码（内核6.6.159）"
+          fi
           git log -1 --pretty=format:'源码版本: %h %ad %s%n' --date=iso
+          echo "=== 内核版本 ==="
+          grep -E 'LINUX_VERSION|LINUX_KERNEL_HASH' include/kernel-6.6 2>/dev/null | head -2 || true
           echo "OPENWRT_DIR=$PWD" >> "$GITHUB_ENV"
 
       - name: 自定义 feeds（第三方插件源）
