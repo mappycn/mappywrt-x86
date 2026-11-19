@@ -1,0 +1,24 @@
+# ============================================================
+# 第三方插件 commit 锁定清单（供应链安全 · 干净无毒保证）
+# 每行格式：包名 仓库URL 分支 锁定commit(完整40位)
+#
+# 目的：固件中每一份第三方代码都固定到审核过的快照，
+#       上游仓库即使被篡改/投毒，也不会影响本固件的构建结果。
+# 说明：git fetch 按 SHA 锁定必须用完整 40 位，短 SHA 不可靠。
+# 更新方式：审阅上游变更后，手动修改对应 commit 并提交。
+# 抓取并核验日期：2026-11-19
+# ============================================================
+luci-theme-kucat        https://github.com/sirpdboy/luci-theme-kucat.git        master 1c8e7f7c1052552f4fac09d60e5adc07ed33bfa3
+luci-app-kucat-config   https://github.com/sirpdboy/luci-app-kucat-config.git   master e51de5e4f9c98c234777c26948ff454a2ae3dc99
+luci-app-advanced       https://github.com/sirpdboy/luci-app-advanced.git       master 6a5adf2c962e9130c973b038ffbc4e46fb018d17
+luci-app-advancedplus   https://github.com/sirpdboy/luci-app-advancedplus.git   main   aba81aa40e0f9aa1f1c5a69ee66a7a943a5f6384
+luci-app-netwizard      https://github.com/sirpdboy/luci-app-netwizard.git      main   7867a28e711269889ca1c999a0ce844c3adb45a0
+luci-app-partexp        https://github.com/sirpdboy/luci-app-partexp.git        main   ef79d6b8c7f1e4d476be55dabb4c34d5b7f334c5
+luci-app-ddns-go        https://github.com/sirpdboy/luci-app-ddns-go.git        main   7092e6de6ad9fe3f7d327f70468dfd19e00d6f0e
+luci-app-lucky          https://github.com/sirpdboy/luci-app-lucky.git          main   31f068051de9798c0fb8f3e1d8e32310b4063e5d
+luci-app-taskplan       https://github.com/sirpdboy/luci-app-taskplan.git       main   babd67a496a592ad9bd625fbc08db804cff45ab9
+luci-app-poweroffdevice https://github.com/sirpdboy/luci-app-poweroffdevice.git master 8f53359c3234c7c398b846b5425f9b0b017c03ec
+luci-app-eqosplus       https://github.com/sirpdboy/luci-app-eqosplus.git       main   c7ea61c971f123b59282131ea5b3438e39118dae
+luci-app-timecontrol    https://github.com/sirpdboy/luci-app-timecontrol.git    main   52b82003a9392fb2692662bb702d5610ce9ec505
+luci-app-watchdog       https://github.com/sirpdboy/luci-app-watchdog.git       main   4c0ad625c7385c20e53aca9bcb78fa4ba518991c
+luci-app-openclash      https://github.com/vernesong/OpenClash.git              master e553e82e01c697aefbe1555261a503f425e00ccd

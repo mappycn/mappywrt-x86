@@ -10,14 +10,39 @@ set -u
 PKG_ROOT="package/ezopwrt"
 mkdir -p "$PKG_ROOT"
 
-# 国内网络如需加速，可填镜像前缀，例如：
-#   CLONE_PREFIX="https://ghfast.top/"
+# ------------------------------------------------------------
+# 供应链安全：
+#   1) 默认禁用第三方镜像前缀。镜像可篡改代码内容，仅在你完全信任
+#      且离线核验过的情况下才显式设置 CLONE_PREFIX，正常编译留空。
+#   2) 每个插件固定到 configs/pinned-commits.txt 里审核过的 commit，
+#      而不是跟随上游分支 HEAD——上游被投毒也不会进入固件。
+# ------------------------------------------------------------
 CLONE_PREFIX="${CLONE_PREFIX:-}"
 
+PINNED_FILE="${GITHUB_WORKSPACE:-.}/configs/pinned-commits.txt"
+[ -f "$PINNED_FILE" ] || PINNED_FILE="configs/pinned-commits.txt"
+declare -A PIN_COMMIT PIN_BRANCH
+if [ -f "$PINNED_FILE" ]; then
+    while read -r name url br commit; do
+        case "$name" in ''|'#'*) continue;; esac
+        PIN_BRANCH["$name"]="$br"
+        PIN_COMMIT["$name"]="$commit"
+    done < "$PINNED_FILE"
+    echo "==> 已加载 commit 锁定清单：${#PIN_COMMIT[@]} 个插件"
+fi
+
 try_branch() {
-    local url="$1" dest="$2" branch="$3"
+    local url="$1" dest="$2" branch="$3" commit="${4:-}" name="${5:-package}"
     rm -rf "$dest"
     if git clone --depth=1 -b "$branch" "$url" "$dest" 2>/dev/null && [ -d "$dest/.git" ]; then
+        # 固定到审核过的 commit：优先 checkout 锁定快照，不用分支最新
+        if [ -n "$commit" ]; then
+            if (cd "$dest" && git fetch --depth=1 origin "$commit" >/dev/null 2>&1 && git checkout "$commit" >/dev/null 2>&1); then
+                echo "  [锁定] $name -> $commit"
+            else
+                echo "  [警告] $name 锁定 commit $commit 拉取失败，回退分支 $branch HEAD（请复核供应链！）"
+            fi
+        fi
         return 0
     fi
     rm -rf "$dest"
@@ -26,15 +51,15 @@ try_branch() {
 
 # 同一分支重试 3 次（GitHub 偶发 TLS 握手失败），再逐个回退其他分支
 try_clone() {
-    local url="$1" dest="$2" wanted="$3" b n
+    local url="$1" dest="$2" wanted="$3" commit="${4:-}" name="${5:-package}" b n
     for n in 1 2 3; do
-        try_branch "$url" "$dest" "$wanted" && return 0
+        try_branch "$url" "$dest" "$wanted" "$commit" "$name" && return 0
         sleep 3
     done
     for b in main master lua; do
         [ "$b" = "$wanted" ] && continue
         for n in 1 2; do
-            try_branch "$url" "$dest" "$b" && return 0
+            try_branch "$url" "$dest" "$b" "$commit" "$name" && return 0
             sleep 3
         done
     done
@@ -45,10 +70,12 @@ try_clone() {
 fetch_pkg() {
     local name="$1" repo="$2" branch="${3:-main}"
     local tmp="/tmp/pkgsrc/$name"
+    local commit="${PIN_COMMIT[$name]:-}"
+    [ -n "${PIN_BRANCH[$name]:-}" ] && branch="${PIN_BRANCH[$name]}"
     mkdir -p /tmp/pkgsrc
     rm -rf "$tmp" "$PKG_ROOT/$name"
 
-    if ! try_clone "${CLONE_PREFIX}${repo}" "$tmp" "$branch"; then
+    if ! try_clone "${CLONE_PREFIX}${repo}" "$tmp" "$branch" "$commit" "$name"; then
         echo "  [跳过] $name 拉取失败（不影响其他插件）"
         return 0
     fi
