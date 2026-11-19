@@ -143,6 +143,16 @@ jobs:
         run: |
           cd openwrt
           make defconfig
+          # 强制修复 dnsmasq / dnsmasq-full 文件冲突（run#7 根因）：
+          # defconfig 可能因依赖把基础版 dnsmasq 重新打开，这里在解析后兜底关闭，
+          # 保证只保留功能更全的 dnsmasq-full（它 provides dnsmasq，不影响依赖）。
+          if grep -q '^CONFIG_PACKAGE_dnsmasq=y' .config; then
+            echo "::warning::检测到基础版 dnsmasq 与 dnsmasq-full 冲突，自动关闭基础版"
+            sed -i 's/^CONFIG_PACKAGE_dnsmasq=y/CONFIG_PACKAGE_dnsmasq=n/' .config
+          fi
+          grep -q '^CONFIG_PACKAGE_dnsmasq-full=y' .config || echo "::warning::dnsmasq-full 未选中，请检查配置"
+          echo "=== dnsmasq 选择 ==="
+          grep -E '^CONFIG_PACKAGE_dnsmasq(-full)?=' .config || true
           echo "=== 根分区大小 ==="
           grep -E 'CONFIG_TARGET_ROOTFS_PARTSIZE|CONFIG_GRUB_IMAGES|CONFIG_GRUB_EFI_IMAGES' .config
           echo "=== 实际选中包数 ==="
