@@ -54,19 +54,16 @@ jobs:
     name: x86_64-BIOS-${{ inputs.source_branch || 'openwrt-24.10' }}
 
     steps:
-      # 必须先腾空间：该动作会把新磁盘挂载到工作区目录，
-      # 先检出的话文件会被盖掉（第一次运行失败的原因）
-      # 标准 runner 只有 ~14G 可用，x86 全量编译要 25G+
-      - name: 腾出磁盘空间
-        uses: easimon/maximize-build-space@master
-        with:
-          root-reserve-mb: 8192
-          swap-size-mb: 2048
-          remove-dotnet: 'true'
-          remove-android: 'true'
-          remove-haskell: 'true'
-          remove-codeql: 'true'
-          remove-docker-images: 'true'
+      # 不再使用 easimon/maximize-build-space：当前 ubuntu-22.04 runner 根盘
+      # 已达 ~146G，足够 x86 全量编译；该动作反而用 /pv.img loop 抽走根盘空间
+      # 建 LVM，导致 apt 装依赖时报 "No space left on device"（run#4/#5 根因）。
+      # 这里改为轻量清理无用预装组件即可。
+      - name: 清理 runner 预装组件腾空间
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost /usr/share/swift 2>/dev/null || true
+          sudo apt-get clean || true
+          df -hT
 
       - name: 检出仓库
         uses: actions/checkout@v4
