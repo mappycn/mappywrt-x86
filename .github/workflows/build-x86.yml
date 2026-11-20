@@ -21,7 +21,7 @@ on:
         required: true
         default: '2048'
       source_commit:
-        description: '源码版本：留空=对齐老U盘(内核6.6.121)；填 latest=分支最新(6.6.159)；也可填指定commit'
+        description: '源码commit：留空或 latest=分支最新(immortalwrt源,含HomeProxy,推荐)；填指定commit=自定义'
         required: false
         default: ''
       publish_release:
@@ -43,8 +43,10 @@ env:
   REPO_URL: https://github.com/immortalwrt/immortalwrt
   REPO_BRANCH: ${{ inputs.source_branch || 'openwrt-24.10' }}
   ROOTFS_SIZE: ${{ inputs.rootfs_size || '2048' }}
-  # 默认锁定到与老U盘同期的源码（内核6.6.121），确保换U盘行为一致；填 latest 可用分支最新
-  SOURCE_COMMIT: ${{ inputs.source_commit || '8843108ff0fffb2abdc87465c323c97c7821df05' }}
+  # 默认用 ImmortalWrt 分支最新（feeds 指向 immortalwrt/packages + immortalwrt/luci，
+  # 才能编出 HomeProxy）。切勿锁 2026 年初的旧 commit（8843108/18771e 等），
+  # 那批 commit 的 feeds 指向 git.openwrt.org，编出来是纯 OpenWrt，无 HomeProxy。
+  SOURCE_COMMIT: ${{ inputs.source_commit || '' }}
   TZ: Asia/Shanghai
 
 jobs:
@@ -108,17 +110,20 @@ jobs:
         run: |
           git clone --depth=1 -b "$REPO_BRANCH" "$REPO_URL" openwrt
           cd openwrt
-          # 默认检出与老U盘同期的 commit（内核6.6.121）；只有显式填 latest 才用分支最新
+          # 默认用分支最新 HEAD（feeds 指向 immortalwrt，含 HomeProxy）。
+          # 只有显式填了具体 commit 才切换；切勿锁 2026 年初上游同步的旧 commit。
           if [ -n "$SOURCE_COMMIT" ] && [ "$SOURCE_COMMIT" != "latest" ]; then
             git fetch --depth=1 origin "$SOURCE_COMMIT"
             git checkout "$SOURCE_COMMIT"
             echo "::notice::已切换到指定源码 commit $SOURCE_COMMIT"
-          elif [ "$SOURCE_COMMIT" = "latest" ]; then
-            echo "::notice::使用分支最新源码（内核6.6.159）"
+          else
+            echo "::notice::使用 ImmortalWrt 分支最新源码（feeds=immortalwrt，含 HomeProxy）"
           fi
           git log -1 --pretty=format:'源码版本: %h %ad %s%n' --date=iso
           echo "=== 内核版本 ==="
           grep -E 'LINUX_VERSION|LINUX_KERNEL_HASH' include/kernel-6.6 2>/dev/null | head -2 || true
+          echo "=== feeds 校验（必须含 immortalwrt，否则无 HomeProxy）==="
+          grep -E 'src-git.*immortalwrt' feeds.conf.default && echo 'FEEDS_OK=immortalwrt' || echo '::warning::feeds 非 immortalwrt，HomeProxy 可能缺失'
           echo "OPENWRT_DIR=$PWD" >> "$GITHUB_ENV"
 
       - name: 自定义 feeds（第三方插件源）
